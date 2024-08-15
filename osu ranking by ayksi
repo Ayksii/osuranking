@@ -1,0 +1,198 @@
+import sys
+import requests
+import webbrowser
+from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget, QHBoxLayout, QSizePolicy
+from PyQt5.QtCore import QTimer, QPropertyAnimation, pyqtProperty, Qt
+from PyQt5.QtGui import QFont, QColor, QPalette, QPixmap
+
+api_key = 'TYPE YOUR API KEY'
+usernames = ['nickname1', 'nickname2']  
+
+class AnimatedLabel(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._value = 0
+        self.setAlignment(Qt.AlignCenter)  
+
+    @pyqtProperty(int)
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, val):
+        self._value = val
+        self.setText(str(val))
+
+    def animateTo(self, target_value):
+        self.anim = QPropertyAnimation(self, b"value")
+        self.anim.setDuration(1000)  
+        self.anim.setStartValue(self._value)
+        self.anim.setEndValue(target_value)
+        self.anim.start()
+
+    def setColor(self, color):
+        palette = self.palette()
+        palette.setColor(QPalette.WindowText, color)
+        self.setPalette(palette)
+
+# Created by Ayksi
+
+class ClickableLabel(QLabel):
+    def __init__(self, username, parent=None):
+        super().__init__(parent)
+        self.username = username
+        self.setText(username) 
+        self.setStyleSheet("color: #ff79c6; background-color: transparent;")  
+        self.setAlignment(Qt.AlignCenter) 
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            webbrowser.open(f"https://osu.ppy.sh/users/{self.username}")
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.labels = {}
+        self.previous_ranks = {}
+
+        layout = QVBoxLayout()
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #282a36;
+                color: #f8f8f2;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QLabel {
+                background-color: #44475a;
+                border-radius: 10px;
+                padding: 10px;
+                color: #f8f8f2;
+            }
+        """)
+
+        for username in usernames:
+            user_layout = QVBoxLayout()
+            user_layout.setSpacing(10)  
+
+            background_label = QLabel(self)
+            background_label.setStyleSheet("background-color: #44475a; border-radius: 10px;")
+            background_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  
+            background_label.setMinimumHeight(100)  
+            background_label.setAlignment(Qt.AlignCenter)  
+
+            user_label = ClickableLabel(username)
+            user_label.setFont(QFont("Kaushan Script", 24))
+            user_label.setStyleSheet("color: #ff79c6; background-color: transparent;")  
+
+            background_layout = QVBoxLayout()
+            background_layout.setContentsMargins(10, 10, 10, 10) 
+            background_layout.setAlignment(Qt.AlignCenter) 
+            background_layout.addWidget(user_label)
+            background_label.setLayout(background_layout)
+
+            user_layout.addWidget(background_label)
+
+            ranks_layout = QHBoxLayout()
+
+            global_label = QLabel("Światowy ranking: ")
+            global_label.setFont(QFont("Arial", 18))
+            global_rank_label = AnimatedLabel()
+            global_rank_label.setFont(QFont("Arial", 22))
+
+            global_layout = QVBoxLayout()
+            global_layout.addWidget(global_label)
+            global_layout.addWidget(global_rank_label)
+
+            country_label = QLabel("Krajowy ranking: ")
+            country_label.setFont(QFont("Arial", 18))
+            country_rank_label = AnimatedLabel()
+            country_rank_label.setFont(QFont("Arial", 22))
+
+            country_layout = QVBoxLayout()
+            country_layout.addWidget(country_label)
+            country_layout.addWidget(country_rank_label)
+
+            last_active_label = QLabel("Data dołączenia: ")
+            last_active_label.setFont(QFont("Arial", 18))
+            total_playtime_label = QLabel("Łączny czas gry: ")
+            total_playtime_label.setFont(QFont("Arial", 18))
+
+            # Created by Ayksi
+
+            info_layout = QVBoxLayout()
+            info_layout.addWidget(last_active_label)
+            info_layout.addWidget(total_playtime_label)
+
+            ranks_layout.addLayout(global_layout)
+            ranks_layout.addLayout(country_layout)
+            user_layout.addLayout(ranks_layout)
+            user_layout.addLayout(info_layout)
+
+            layout.addLayout(user_layout)
+
+            self.labels[username] = {
+                'global': global_rank_label,
+                'country': country_rank_label,
+                'last_active': last_active_label,
+                'total_playtime': total_playtime_label
+            }
+
+        self.setLayout(layout)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_rankings)
+        self.timer.start(5000) 
+
+        self.update_rankings()  
+
+    def update_rankings(self):
+        for username in usernames:
+            global_rank, country_rank, last_active, total_playtime = self.get_osu_ranking(username)
+
+            if global_rank is not None:
+                self.animate_rank(self.labels[username]['global'], 'global', username, int(global_rank))
+                self.animate_rank(self.labels[username]['country'], 'country', username, int(country_rank))
+
+                self.labels[username]['last_active'].setText(f"Data dołączenia: {last_active}")
+                self.labels[username]['total_playtime'].setText(f"Łączny czas gry: {total_playtime}")
+
+    def animate_rank(self, label, rank_type, username, new_rank):
+        if username in self.previous_ranks and rank_type in self.previous_ranks[username]:
+            old_rank = self.previous_ranks[username][rank_type]
+            if new_rank < old_rank:
+                label.setColor(QColor("#50fa7b")) 
+            elif new_rank > old_rank:
+                label.setColor(QColor("#ff5555")) 
+            else:
+                label.setColor(QColor("#f8f8f2")) 
+
+        label.animateTo(new_rank)
+        self.previous_ranks.setdefault(username, {})[rank_type] = new_rank
+
+    def get_osu_ranking(self, username):
+        url = f'https://osu.ppy.sh/api/get_user?k={api_key}&u={username}'
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()[0]
+            global_rank = data['pp_rank']
+            country_rank = data['pp_country_rank']
+
+            last_active = data.get('join_date', 'N/A')
+            total_seconds = int(data.get('total_seconds_played', 0))
+            total_days = total_seconds // 86400
+            total_hours = (total_seconds % 86400) // 3600
+            total_minutes = (total_seconds % 3600) // 60
+            total_playtime = f"{total_days}d {total_hours}h {total_minutes}m"
+            return global_rank, country_rank, last_active, total_playtime
+        else:
+            return None, None, None, None
+
+            # Created by Ayksi
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.setWindowTitle("osu! Ranking by Ayksi")
+    window.show()
+    sys.exit(app.exec_())
